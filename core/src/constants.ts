@@ -18,6 +18,28 @@ export const HOOK_SCRIPTS_DIR = '.pixel-agents/hooks';
 export const BASH_COMMAND_DISPLAY_MAX_LENGTH = 30;
 export const TASK_DESCRIPTION_DISPLAY_MAX_LENGTH = 40;
 
+// ── Terminal (standalone embedded terminal) ──────────────────
+// The raw PTY byte stream deliberately lives OUTSIDE the AsyncAPI contract --
+// it is a data plane (unstructured, high-frequency), not a control plane.
+// Only the terminal's control-plane facts (availability, session open/close)
+// are AsyncAPI ServerMessages. See docs/design/standalone-terminal.md.
+
+/** Path prefix for the per-agent terminal WebSocket: `/terminal/:agentId`. */
+export const TERMINAL_WS_PREFIX = '/terminal';
+/** Same-origin-guarded endpoint that hands the SPA the auth token it needs to
+ *  open a terminal socket (a browser cannot read ~/.pixel-agents/server.json). */
+export const TERMINAL_SESSION_API_PATH = '/api/terminal/session';
+/** WebSocket subprotocol identifying a terminal connection. The auth token
+ *  rides as the SECOND subprotocol value, because the browser WebSocket API
+ *  cannot set an Authorization header and standalone runs Fastify with
+ *  `logger: true` -- a `?token=` query param would be written to the request
+ *  log on every connection. */
+export const TERMINAL_WS_PROTOCOL = 'pixel-agents.terminal.v1';
+
+/** Close codes for the terminal socket (4000-4999 = application-defined). */
+export const TERMINAL_CLOSE_UNAUTHORIZED = 4401;
+export const TERMINAL_CLOSE_NO_SESSION = 4404;
+
 // ── Transport ────────────────────────────────────────────────
 // Connection-state names for the MessageTransport state machine.
 

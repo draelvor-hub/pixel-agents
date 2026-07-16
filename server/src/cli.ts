@@ -24,6 +24,7 @@ import { MAX_PORT, MIN_PORT } from './constants.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
 import { claudeProvider, copyHookScript } from './providers/index.js';
 import { PixelAgentsServer } from './server.js';
+import { PtySessionManager } from './terminal/ptySessionManager.js';
 
 // ── Argument parsing ──────────────────────────────────────────
 
@@ -73,6 +74,45 @@ Options:
   return args;
 }
 
+// ── Terminal status reporting ─────────────────────────────────
+
+/** Loopback addresses. Binding anywhere else exposes the terminal beyond this
+ *  machine, which is worth an explicit warning since the terminal is a shell. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+
+export function isLoopbackHost(host: string): boolean {
+  return LOOPBACK_HOSTS.has(host);
+}
+
+/**
+ * Log one clear line about terminal availability, plus a security warning when
+ * a working terminal is bound to a non-loopback address.
+ *
+ * The reason string matters: the most likely failure (npm >=11.16 gating
+ * node-pty's install scripts, so it imports but can't spawn) is invisible
+ * otherwise -- the user would just see a + Agent button that does nothing.
+ */
+function reportTerminalStatus(ptyManager: PtySessionManager, host: string): void {
+  if (!ptyManager.isAvailable()) {
+    console.warn(
+      `[Pixel Agents] Terminal disabled: ${ptyManager.unavailableReason()}\n` +
+        `[Pixel Agents] The office still works; you just can't launch agents from the browser.\n` +
+        `[Pixel Agents] To enable it, reinstall so the optional PTY module is present.`,
+    );
+    return;
+  }
+
+  console.log(`[Pixel Agents] Terminal enabled (via ${ptyManager.moduleId()})`);
+
+  if (!isLoopbackHost(host)) {
+    console.warn(
+      `[Pixel Agents] WARNING: bound to ${host}, not loopback. The terminal is a shell:\n` +
+        `[Pixel Agents] anyone who can reach this port AND has the auth token can run commands\n` +
+        `[Pixel Agents] as you. Use --host 127.0.0.1 unless you specifically intend this.`,
+    );
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -112,6 +152,11 @@ async function main(): Promise<void> {
 
   // ── Create server ──
   const server = new PixelAgentsServer();
+
+  // Terminals for agents this server launches. Construction is cheap -- the
+  // native module is resolved (and probed) lazily on first use, so a user who
+  // never opens a terminal never pays for it.
+  const ptyManager = new PtySessionManager();
 
   try {
     // Create runtime first (before server.start, so we can pass it in)
@@ -187,8 +232,11 @@ async function main(): Promise<void> {
       assetCache,
       onSetHooksEnabled,
       onReloadAssets,
+      ptyManager,
     });
     currentConfig = { port: config.port, token: config.token };
+
+    reportTerminalStatus(ptyManager, args.host);
 
     // Sync runtime refs with persisted settings BEFORE first scan tick
     runtime.hooksEnabled.current = adapter.getSetting('pixel-agents.hooksEnabled', true);
@@ -221,6 +269,9 @@ async function main(): Promise<void> {
     // ── Graceful shutdown ──
     function shutdown(): void {
       console.log('\nShutting down...');
+      // Kill child terminals before the runtime tears their agents down, so we
+      // never leave an orphaned Claude process attached to a dead server.
+      ptyManager.disposeAll();
       runtime.dispose();
       server.stop();
       process.exit(0);
