@@ -174,6 +174,12 @@ is loopback-only by default. `--host` can override it; the CLI now prints an exp
 when `--host` is set to a non-loopback address _and_ a terminal is available, because that
 exposes a shell to the network.
 
+`--no-terminal` removes the shell surface entirely: the CLI builds the manager via
+`PtySessionManager.disabled(reason)`, which reports "unavailable" through the same plumbing as a
+failed module resolution (availability broadcast, session route, launcher), so the browser shows
+a disabled + Agent button with the reason and never opens a terminal socket. This is the intended
+configuration for a watch-only dashboard, especially one bound off-loopback.
+
 ### The existing `/ws` does not authenticate in standalone
 
 ```ts
@@ -365,6 +371,7 @@ Note (5) and (6) are the ones I'd prioritize — they're the security- and suppo
 - **`npx` install size.** Adds one prebuilt `.node` (~100–200 KB) for the host platform only.
 - **Non-loopback `--host`.** A user who sets `--host 0.0.0.0` exposes a token-guarded shell.
   Warned at startup; not blocked (blocking would be a behavior change to an existing flag).
+  `--no-terminal` is the sanctioned answer for network-exposed watch-only dashboards.
 - **Probe cost.** The availability probe spawns and kills a real PTY once per process. It runs
   lazily on first use, not at boot, so a user who never opens a terminal never pays it.
 

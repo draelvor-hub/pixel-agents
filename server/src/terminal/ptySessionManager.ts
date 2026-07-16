@@ -181,6 +181,17 @@ export class PtySessionManager {
     private readonly resolve: () => ReturnType<typeof resolvePtyModule> = resolvePtyModule,
   ) {}
 
+  /**
+   * A manager that is permanently unavailable with the given reason, for when
+   * the operator opts out (--no-terminal). Every consumer -- the availability
+   * broadcast, the session route, the launcher -- already handles "unavailable",
+   * so a disabled manager needs no special-casing anywhere downstream, and the
+   * native module is never resolved or probed.
+   */
+  static disabled(reason: string): PtySessionManager {
+    return new PtySessionManager(() => ({ module: null, moduleId: null, reason }));
+  }
+
   /** Resolve (once) and cache the PTY module. Lazy: a user who never opens a
    *  terminal never pays the probe's spawn. */
   private ensureResolved(): ReturnType<typeof resolvePtyModule> {

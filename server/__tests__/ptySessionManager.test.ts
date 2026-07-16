@@ -106,6 +106,16 @@ describe('PtySessionManager availability', () => {
     const { manager } = harness({ module: null, moduleId: null, reason: 'no PTY module' });
     expect(() => create(manager)).toThrow(/no PTY module/);
   });
+
+  it('disabled() is permanently unavailable with the given reason', () => {
+    // --no-terminal path: same observable contract as a failed module resolution,
+    // so everything downstream (broadcast, routes, launcher) needs no special case.
+    const manager = PtySessionManager.disabled('disabled by flag');
+    expect(manager.isAvailable()).toBe(false);
+    expect(manager.unavailableReason()).toBe('disabled by flag');
+    expect(manager.moduleId()).toBeNull();
+    expect(() => create(manager)).toThrow(/disabled by flag/);
+  });
 });
 
 describe('PtySessionManager lifecycle', () => {
