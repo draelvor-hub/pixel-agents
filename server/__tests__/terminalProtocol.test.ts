@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { TERMINAL_WS_PROTOCOL } from '../../core/src/constants.js';
+import { CONTROL_WS_PROTOCOL, TERMINAL_WS_PROTOCOL } from '../../core/src/constants.js';
 import {
   encodeServerFrame,
   extractTokenFromProtocolHeader,
@@ -69,6 +69,17 @@ describe('terminal token extraction', () => {
     expect(extractTokenFromProtocolHeader('')).toBeNull();
     expect(extractTokenFromProtocolHeader(TERMINAL_WS_PROTOCOL)).toBeNull();
     expect(extractTokenFromProtocolHeader('some.other.protocol, abc-123')).toBeNull();
+  });
+
+  it('extracts against a caller-supplied protocol (the /ws control socket)', () => {
+    // The control socket reuses this parser with CONTROL_WS_PROTOCOL; each
+    // socket only accepts its own protocol name in the first slot.
+    expect(
+      extractTokenFromProtocolHeader(`${CONTROL_WS_PROTOCOL}, tok-9`, CONTROL_WS_PROTOCOL),
+    ).toBe('tok-9');
+    expect(
+      extractTokenFromProtocolHeader(`${TERMINAL_WS_PROTOCOL}, tok-9`, CONTROL_WS_PROTOCOL),
+    ).toBeNull();
   });
 });
 

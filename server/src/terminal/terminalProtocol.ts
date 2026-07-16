@@ -64,15 +64,20 @@ function isPositiveInt(value: unknown): value is number {
 /**
  * Extract the auth token from a Sec-WebSocket-Protocol header.
  *
- * The client connects as `new WebSocket(url, [TERMINAL_WS_PROTOCOL, token])`,
- * so the header is `"pixel-agents.terminal.v1, <token>"`. The token rides here
- * rather than in the URL because standalone runs Fastify with `logger: true`,
- * which writes req.url to the log on every request -- a `?token=` param would
- * leak the token into stdout and log files. The browser WebSocket API cannot
- * set an Authorization header, so this is the only header available.
+ * The client connects as `new WebSocket(url, [protocol, token])`, so the header
+ * is `"<protocol>, <token>"`. The token rides here rather than in the URL
+ * because standalone runs Fastify with `logger: true`, which writes req.url to
+ * the log on every request -- a `?token=` param would leak the token into
+ * stdout and log files. The browser WebSocket API cannot set an Authorization
+ * header, so this is the only header available.
+ *
+ * Generic over the protocol name so both the terminal socket (TERMINAL_WS_
+ * PROTOCOL) and the control socket (CONTROL_WS_PROTOCOL) share this parser; it
+ * defaults to the terminal protocol for that socket's existing callers.
  */
 export function extractTokenFromProtocolHeader(
   header: string | string[] | undefined,
+  expectedProtocol: string = TERMINAL_WS_PROTOCOL,
 ): string | null {
   if (header === undefined) return null;
   const values = (Array.isArray(header) ? header.join(',') : header)
@@ -80,7 +85,7 @@ export function extractTokenFromProtocolHeader(
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 
-  if (values[0] !== TERMINAL_WS_PROTOCOL) return null;
+  if (values[0] !== expectedProtocol) return null;
   return values[1] ?? null;
 }
 
