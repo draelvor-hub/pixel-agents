@@ -366,8 +366,10 @@ Note (5) and (6) are the ones I'd prioritize — they're the security- and suppo
 - **Beta dependency.** `@lydell/node-pty` is `1.2.0-beta.12`. Mitigated by optionality, the
   fallback candidate list, and graceful degradation, but it is a real supply-chain call that
   deserves a maintainer's sign-off.
-- **Windows untested.** ConPTY is claimed by prebuilds but not exercised here; the CI matrix has
-  Windows, but no e2e covers the terminal on this branch.
+- **Windows untested.** ConPTY is claimed by prebuilds but not exercised here. The e2e terminal
+  spec (`e2e/tests/standalone/terminal.spec.ts`) covers launch → drawer → I/O → reload → close on
+  macOS/Linux, but skips the PTY-launch path on Windows: it spawns `claude` directly (no shell
+  hop), and running a `.cmd` shim that way is exactly the untested part.
 - **`npx` install size.** Adds one prebuilt `.node` (~100–200 KB) for the host platform only.
 - **Non-loopback `--host`.** A user who sets `--host 0.0.0.0` exposes a token-guarded shell.
   Warned at startup; not blocked (blocking would be a behavior change to an existing flag).
