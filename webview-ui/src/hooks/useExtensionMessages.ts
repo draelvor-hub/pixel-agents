@@ -80,6 +80,12 @@ interface ExtensionMessageState {
   setAreaMappings: (m: Record<string, string[]>) => void;
   showAreas: boolean;
   setShowAreas: (v: boolean) => void;
+  // Terminal (standalone only; always false/empty under VS Code, which owns its
+  // own terminals and never sends these messages)
+  terminalAvailable: boolean;
+  terminalUnavailableReason: string | null;
+  /** Agent ids with a live server-side PTY, in the order they opened. */
+  terminalAgentIds: number[];
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -120,6 +126,12 @@ export function useExtensionMessages(
   const [hooksInfoShown, setHooksInfoShown] = useState(true);
   const [areaMappings, setAreaMappings] = useState<Record<string, string[]>>({});
   const [showAreas, setShowAreas] = useState(false);
+  // Terminal control plane (standalone only; the server never sends these in
+  // VS Code mode, so terminalAvailable stays false and no terminal UI renders).
+  const [terminalAvailable, setTerminalAvailable] = useState(false);
+  const [terminalUnavailableReason, setTerminalUnavailableReason] = useState<string | null>(null);
+  /** Agent ids with a live PTY, in the order their terminals opened. */
+  const [terminalAgentIds, setTerminalAgentIds] = useState<number[]>([]);
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -171,6 +183,26 @@ export function useExtensionMessages(
           readingTools: msg.readingTools,
           subagentToolNames: msg.subagentToolNames,
         });
+        return;
+      }
+
+      if (msg.type === 'terminalAvailability') {
+        setTerminalAvailable(msg.available as boolean);
+        setTerminalUnavailableReason((msg.reason as string | undefined) ?? null);
+        return;
+      }
+
+      if (msg.type === 'terminalSessionOpened') {
+        // Deduped: webviewReady re-announces every live session so a reloaded
+        // client rebuilds its tabs, and that can race a live agentCreated.
+        const agentId = msg.agentId as number;
+        setTerminalAgentIds((prev) => (prev.includes(agentId) ? prev : [...prev, agentId]));
+        return;
+      }
+
+      if (msg.type === 'terminalSessionClosed') {
+        const agentId = msg.agentId as number;
+        setTerminalAgentIds((prev) => prev.filter((id) => id !== agentId));
         return;
       }
 
@@ -238,6 +270,10 @@ export function useExtensionMessages(
         const id = msg.id as number;
         setAgents((prev) => prev.filter((a) => a !== id));
         setSelectedAgent((prev) => (prev === id ? null : prev));
+        // Drop the drawer tab too. terminalSessionClosed normally does this, but
+        // an agent can be removed without its PTY ever reporting an exit (e.g.
+        // stale cleanup), and a tab for a gone agent would attach to nothing.
+        setTerminalAgentIds((prev) => prev.filter((a) => a !== id));
         setAgentTools((prev) => {
           if (!(id in prev)) return prev;
           const next = { ...prev };
@@ -619,5 +655,8 @@ export function useExtensionMessages(
     setAreaMappings,
     showAreas,
     setShowAreas,
+    terminalAvailable,
+    terminalUnavailableReason,
+    terminalAgentIds,
   };
 }

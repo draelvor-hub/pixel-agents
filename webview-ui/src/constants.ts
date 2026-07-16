@@ -258,3 +258,48 @@ export const PET_THUMB_SCALE_MARGIN = 0.85;
 export const EMPTY_SPRITE_THUMBNAIL_BG = '#333';
 /** Maximum string length for a PlacedPet.id (defends against pathologically-long layout entries). */
 export const MAX_PET_ID_LENGTH = 128;
+
+// ── Terminal drawer (standalone only) ────────────────────────
+// This file is the one place inline colors are allowed (see eslint.config.js),
+// which is why xterm's theme lives here rather than next to the component.
+
+/** Drawer height as a fraction of the viewport. */
+export const TERMINAL_DRAWER_HEIGHT_RATIO = 0.4;
+export const TERMINAL_DRAWER_MIN_HEIGHT_PX = 160;
+/** Terminal CONTENT is monospace on purpose: FS Pixel Sans is not a mono font,
+ *  and a TUI mis-renders in a proportional face. The drawer chrome around it
+ *  still uses the pixel font. */
+export const TERMINAL_FONT_FAMILY =
+  'ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace';
+export const TERMINAL_FONT_SIZE_PX = 13;
+/** Lines xterm retains client-side (independent of the server's replay ring). */
+export const TERMINAL_SCROLLBACK_LINES = 5_000;
+/** Debounce for propagating a resize to the PTY (fit on every frame thrashes it). */
+export const TERMINAL_RESIZE_DEBOUNCE_MS = 100;
+/** WebSocket reconnect backoff, mirroring webSocketTransport's ladder. */
+export const TERMINAL_RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 4_000];
+
+/** xterm theme, matched to the office palette (index.css :root). */
+export const TERMINAL_THEME = {
+  background: '#181828',
+  foreground: 'rgba(255, 255, 255, 0.9)',
+  cursor: '#6030ff',
+  cursorAccent: '#181828',
+  selectionBackground: 'rgba(96, 48, 255, 0.4)',
+  black: '#1e1e2e',
+  red: '#d14249',
+  green: '#89d185',
+  yellow: '#cca700',
+  blue: '#3794ff',
+  magenta: '#746fff',
+  cyan: '#4ad9d9',
+  white: 'rgba(255, 255, 255, 0.9)',
+  brightBlack: '#4a4a6a',
+  brightRed: '#ff6b72',
+  brightGreen: '#a8e5a4',
+  brightYellow: '#ffd700',
+  brightBlue: '#66aaff',
+  brightMagenta: '#a29bff',
+  brightCyan: '#7fe8e8',
+  brightWhite: '#ffffff',
+} as const;

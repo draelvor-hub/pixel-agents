@@ -8,6 +8,7 @@ import { DebugView } from './components/DebugView.js';
 import { EditActionBar } from './components/EditActionBar.js';
 import { MigrationNotice } from './components/MigrationNotice.js';
 import { SettingsModal } from './components/SettingsModal.js';
+import { TerminalDrawer } from './components/TerminalDrawer.js';
 import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
 import { VersionIndicator } from './components/VersionIndicator.js';
@@ -89,6 +90,9 @@ function App() {
     setAreaMappings,
     showAreas,
     setShowAreas,
+    terminalAvailable,
+    terminalUnavailableReason,
+    terminalAgentIds,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   // Show migration notice once layout reset is detected
@@ -101,6 +105,8 @@ function App() {
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
   const [isDebugMode, setIsDebugMode] = useState(false);
   const [alwaysShowOverlay, setAlwaysShowOverlay] = useState(false);
+  const [activeTerminalAgentId, setActiveTerminalAgentId] = useState<number | null>(null);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
 
   const currentMajorMinor = toMajorMinor(extensionVersion);
 
@@ -117,6 +123,20 @@ function App() {
   useEffect(() => {
     setAlwaysShowOverlay(alwaysShowLabels);
   }, [alwaysShowLabels]);
+
+  // Reveal a newly-opened terminal. Launching is async — the toolbar sends
+  // launchAgent and the server answers with terminalSessionOpened once the PTY
+  // is up — so "open the drawer on launch" is expressed as "open it when a
+  // terminal we hadn't seen appears". This also restores the drawer after a
+  // reload, when webviewReady re-announces the live sessions.
+  const knownTerminalIdsRef = useRef<number[]>([]);
+  useEffect(() => {
+    const added = terminalAgentIds.filter((id) => !knownTerminalIdsRef.current.includes(id));
+    knownTerminalIdsRef.current = terminalAgentIds;
+    if (added.length === 0) return;
+    setActiveTerminalAgentId(added[added.length - 1]);
+    setIsTerminalOpen(true);
+  }, [terminalAgentIds]);
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), []);
   const handleToggleAlwaysShowOverlay = useCallback(() => {
@@ -202,12 +222,27 @@ function App() {
     transport.send({ type: 'closeAgent', id });
   }, []);
 
-  const handleClick = useCallback((agentId: number) => {
-    // If clicked agent is a sub-agent, focus the parent's terminal instead
-    const os = getOfficeState();
-    const meta = os.subagentMeta.get(agentId);
-    const focusId = meta ? meta.parentAgentId : agentId;
-    transport.send({ type: 'focusAgent', id: focusId });
+  const handleClick = useCallback(
+    (agentId: number) => {
+      // If clicked agent is a sub-agent, focus the parent's terminal instead
+      const os = getOfficeState();
+      const meta = os.subagentMeta.get(agentId);
+      const focusId = meta ? meta.parentAgentId : agentId;
+      transport.send({ type: 'focusAgent', id: focusId });
+      // Standalone: focusAgent is a no-op server-side (there's no editor to
+      // raise a panel in), so focus is resolved here — select the agent's tab
+      // and open the drawer, mirroring VS Code's terminalRef.show().
+      if (terminalAgentIds.includes(focusId)) {
+        setActiveTerminalAgentId(focusId);
+        setIsTerminalOpen(true);
+      }
+    },
+    [terminalAgentIds],
+  );
+
+  const handleSelectTerminal = useCallback((agentId: number) => {
+    setActiveTerminalAgentId(agentId);
+    setIsTerminalOpen(true);
   }, []);
 
   const officeState = getOfficeState();
@@ -484,7 +519,22 @@ function App() {
         isSettingsOpen={isSettingsOpen}
         onToggleSettings={() => setIsSettingsOpen((v) => !v)}
         workspaceFolders={workspaceFolders}
+        terminalAvailable={terminalAvailable}
+        terminalUnavailableReason={terminalUnavailableReason}
       />
+
+      {/* Standalone only: terminalAvailable is only ever true when the server
+          reports a working PTY, which VS Code's surface never does. */}
+      {terminalAvailable && (
+        <TerminalDrawer
+          agentIds={terminalAgentIds}
+          activeAgentId={activeTerminalAgentId}
+          onSelectAgent={handleSelectTerminal}
+          onCloseAgent={handleCloseAgent}
+          isOpen={isTerminalOpen}
+          onToggle={() => setIsTerminalOpen((v) => !v)}
+        />
+      )}
 
       <VersionIndicator
         currentVersion={extensionVersion}
