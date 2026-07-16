@@ -27,12 +27,22 @@ export interface TerminalSessionInfo {
 let sessionPromise: Promise<TerminalSessionInfo> | null = null;
 
 export function fetchTerminalSession(): Promise<TerminalSessionInfo> {
-  sessionPromise ??= fetch(TERMINAL_SESSION_API_PATH).then((res) => {
-    if (!res.ok) {
-      throw new Error(`terminal session request failed: ${String(res.status)}`);
-    }
-    return res.json() as Promise<TerminalSessionInfo>;
-  });
+  sessionPromise ??= fetch(TERMINAL_SESSION_API_PATH)
+    .then((res) => {
+      if (!res.ok) {
+        throw new Error(`terminal session request failed: ${String(res.status)}`);
+      }
+      return res.json() as Promise<TerminalSessionInfo>;
+    })
+    .catch((err: unknown) => {
+      // Never cache a failure. `??=` would otherwise pin a rejected promise
+      // forever, so a single transient miss (server momentarily unreachable, a
+      // reconnect racing a restart) would poison every future terminal tab and
+      // no reconnect could recover even after the server returns. Clearing lets
+      // the next connect()/reconnect re-fetch.
+      sessionPromise = null;
+      throw err;
+    });
   return sessionPromise;
 }
 
