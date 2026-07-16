@@ -160,6 +160,23 @@
     background: var(--color-accent-bright);
   }
 
+  /* Terminal content must be monospace: Claude Code is a full-screen TUI, and a
+     proportional face breaks its column alignment. The base layer's
+     `* { font-pixel }` applies FS Pixel Sans to every element -- including the
+     span xterm renders each cell into -- which overrides what xterm sets on its
+     own container. Re-assert the mono stack here (components layer beats base,
+     and `.xterm *` outranks `*`).
+
+     --font-terminal is set inline by TerminalPane from TERMINAL_FONT_FAMILY, so
+     the font CSS paints with is the same one xterm measured its cell grid with;
+     hard-coding a second stack here would misalign the grid the moment the two
+     drifted. Only the terminal CONTENT is mono -- the drawer chrome around it
+     stays on the pixel font. */
+  .xterm,
+  .xterm * {
+    font-family: var(--font-terminal);
+  }
+
   /* Pulsing dot animation (DebugView, ToolOverlay) */
   .pixel-pulse {
     animation: pixel-pulse 1.5s ease-in-out infinite;

@@ -1,6 +1,10 @@
 import { useCallback, useState } from 'react';
 
-import { TERMINAL_DRAWER_HEIGHT_RATIO, TERMINAL_DRAWER_MIN_HEIGHT_PX } from '../constants.js';
+import {
+  TERMINAL_DRAWER_COLLAPSED_HEIGHT_CSS,
+  TERMINAL_DRAWER_COLLAPSED_HEIGHT_PX,
+  TERMINAL_DRAWER_OPEN_HEIGHT_CSS,
+} from '../constants.js';
 import type { TerminalConnectionStatus } from '../terminal/terminalClient.js';
 import { TerminalPane } from './TerminalPane.js';
 import { Button } from './ui/Button.js';
@@ -54,13 +58,17 @@ export function TerminalDrawer({
     <div
       className="absolute bottom-0 left-0 right-0 z-30 flex flex-col bg-bg border-t-2 border-border"
       style={{
-        height: isOpen
-          ? `max(${String(TERMINAL_DRAWER_MIN_HEIGHT_PX)}px, ${String(TERMINAL_DRAWER_HEIGHT_RATIO * 100)}vh)`
-          : undefined,
+        height: isOpen ? TERMINAL_DRAWER_OPEN_HEIGHT_CSS : TERMINAL_DRAWER_COLLAPSED_HEIGHT_CSS,
       }}
     >
-      {/* Tab bar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b-2 border-border shrink-0">
+      {/* Tab bar. Fixed height so the collapsed drawer is exactly
+          TERMINAL_DRAWER_COLLAPSED_HEIGHT_CSS tall — the BottomToolbar lifts by
+          that same value, and a drifting tab-bar height would leave it either
+          overlapping the drawer or floating above a gap. */}
+      <div
+        className="flex items-center gap-2 px-4 border-b-2 border-border shrink-0"
+        style={{ height: TERMINAL_DRAWER_COLLAPSED_HEIGHT_PX }}
+      >
         {agentIds.map((agentId) => {
           const isActive = agentId === activeId && isOpen;
           const status = statuses[agentId] ?? 'connecting';

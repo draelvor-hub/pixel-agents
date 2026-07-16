@@ -321,6 +321,12 @@ reload reattaches to a still-running Claude session.
   standalone PTY agents. With hooks on (the default) `SessionEnd`/`SessionStart` handle `/clear`
   correctly, so this only affects hooks-off standalone.
 - **Making `/ws` authenticate in standalone** (pre-existing gap, not introduced here).
+- **Resizing the office canvas when the drawer opens.** The drawer is an absolute
+  overlay along the bottom, so it covers the lower part of the office rather than
+  shrinking the canvas. The BottomToolbar lifts clear of it (via
+  `--terminal-drawer-h`), but the canvas itself doesn't reflow. Making the root a
+  flex column would fix it properly and touches OfficeCanvas sizing — deliberately
+  out of scope here.
 
 ## Suggested e2e coverage (not implemented on this branch)
 

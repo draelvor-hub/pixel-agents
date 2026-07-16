@@ -1,5 +1,6 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
+import type { CSSProperties } from 'react';
 import { useEffect, useRef } from 'react';
 
 import {
@@ -116,6 +117,18 @@ export function TerminalPane({ agentId, isActive, onStatusChange }: TerminalPane
   }, [isActive]);
 
   return (
-    <div ref={hostRef} className="w-full h-full" style={{ display: isActive ? '' : 'none' }} />
+    <div
+      ref={hostRef}
+      className="w-full h-full"
+      style={
+        {
+          display: isActive ? '' : 'none',
+          // Consumed by the `.xterm, .xterm *` rule in index.css to beat the
+          // global `* { font-pixel }` base rule. Fed from the same constant
+          // xterm measures its cell grid with, so CSS can't drift from metrics.
+          '--font-terminal': TERMINAL_FONT_FAMILY,
+        } as CSSProperties
+      }
+    />
   );
 }

@@ -266,6 +266,13 @@ export const MAX_PET_ID_LENGTH = 128;
 /** Drawer height as a fraction of the viewport. */
 export const TERMINAL_DRAWER_HEIGHT_RATIO = 0.4;
 export const TERMINAL_DRAWER_MIN_HEIGHT_PX = 160;
+/** Height of the tab strip; also the drawer's total height when collapsed. */
+export const TERMINAL_DRAWER_COLLAPSED_HEIGHT_PX = 50;
+/** Drawer height in each state, as CSS lengths. Single-sourced here because the
+ *  BottomToolbar lifts itself by exactly this much (via the --terminal-drawer-h
+ *  custom property) to stay reachable above the drawer. */
+export const TERMINAL_DRAWER_OPEN_HEIGHT_CSS = `max(${TERMINAL_DRAWER_MIN_HEIGHT_PX}px, ${TERMINAL_DRAWER_HEIGHT_RATIO * 100}vh)`;
+export const TERMINAL_DRAWER_COLLAPSED_HEIGHT_CSS = `${TERMINAL_DRAWER_COLLAPSED_HEIGHT_PX}px`;
 /** Terminal CONTENT is monospace on purpose: FS Pixel Sans is not a mono font,
  *  and a TUI mis-renders in a proportional face. The drawer chrome around it
  *  still uses the pixel font. */

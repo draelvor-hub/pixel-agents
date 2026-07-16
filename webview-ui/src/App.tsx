@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { toMajorMinor } from './changelogData.js';
@@ -13,6 +14,10 @@ import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
 import { VersionIndicator } from './components/VersionIndicator.js';
 import { ZoomControls } from './components/ZoomControls.js';
+import {
+  TERMINAL_DRAWER_COLLAPSED_HEIGHT_CSS,
+  TERMINAL_DRAWER_OPEN_HEIGHT_CSS,
+} from './constants.js';
 import { useEditorActions } from './hooks/useEditorActions.js';
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js';
 import { useExtensionMessages } from './hooks/useExtensionMessages.js';
@@ -336,8 +341,22 @@ function App() {
     return <div className="w-full h-full flex items-center justify-center ">Loading...</div>;
   }
 
+  // Vertical space the terminal drawer occupies along the bottom. Published as a
+  // custom property so bottom-anchored UI (the toolbar) can lift clear of it
+  // without every consumer re-deriving the drawer's height.
+  const terminalDrawerHeight =
+    terminalAvailable && terminalAgentIds.length > 0
+      ? isTerminalOpen
+        ? TERMINAL_DRAWER_OPEN_HEIGHT_CSS
+        : TERMINAL_DRAWER_COLLAPSED_HEIGHT_CSS
+      : '0px';
+
   return (
-    <div ref={containerRef} className="w-full h-full relative overflow-hidden">
+    <div
+      ref={containerRef}
+      className="w-full h-full relative overflow-hidden"
+      style={{ '--terminal-drawer-h': terminalDrawerHeight } as CSSProperties}
+    >
       <OfficeCanvas
         officeState={officeState}
         onClick={handleClick}
