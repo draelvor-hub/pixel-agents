@@ -99,7 +99,11 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Http
   registerHealthRoute(app);
   registerHookRoute(app, options);
   registerWebSocketRoute(app, options);
-  registerTerminalRoutes(app, { token: options.token, ptyManager: options.ptyManager });
+  registerTerminalRoutes(app, {
+    token: options.token,
+    host: options.host ?? '127.0.0.1',
+    ptyManager: options.ptyManager,
+  });
 
   // ── Listen ──────────────────────────────────────────────────
 

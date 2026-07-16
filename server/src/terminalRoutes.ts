@@ -35,13 +35,18 @@ import type { PtySessionManager } from './terminal/ptySessionManager.js';
 import {
   encodeServerFrame,
   extractTokenFromProtocolHeader,
-  isSameOrigin,
+  isLoopbackHost,
+  isTrustedTerminalRequest,
   isValidToken,
   parseClientFrame,
 } from './terminal/terminalProtocol.js';
 
 export interface TerminalRoutesOptions {
   token: string;
+  /** Host the server is bound to. When loopback, the terminal guard also
+   *  requires a loopback Host header (anti-DNS-rebinding); see
+   *  isTrustedTerminalRequest. */
+  host: string;
   ptyManager?: PtySessionManager;
 }
 
@@ -61,8 +66,13 @@ export function registerTerminalRoutes(app: FastifyInstance, options: TerminalRo
   if (!options.ptyManager) return;
   const ptyManager = options.ptyManager;
 
-  registerSessionRoute(app, options.token, ptyManager);
-  registerTerminalSocketRoute(app, options.token, ptyManager);
+  // Only enforce the loopback-Host allowlist when we're actually loopback-bound.
+  // An operator who bound off-loopback opted into network exposure (and was
+  // warned); their legitimate Host is a LAN name we can't enumerate.
+  const enforceLoopbackHost = isLoopbackHost(options.host);
+
+  registerSessionRoute(app, options.token, ptyManager, enforceLoopbackHost);
+  registerTerminalSocketRoute(app, options.token, ptyManager, enforceLoopbackHost);
 }
 
 /**
@@ -77,27 +87,40 @@ function registerSessionRoute(
   app: FastifyInstance,
   token: string,
   ptyManager: PtySessionManager,
+  enforceLoopbackHost: boolean,
 ): void {
-  app.get(TERMINAL_SESSION_API_PATH, { preHandler: sameOriginOnly }, async () => ({
-    token,
-    available: ptyManager.isAvailable(),
-    reason: ptyManager.unavailableReason() ?? undefined,
-  }));
+  app.get(
+    TERMINAL_SESSION_API_PATH,
+    { preHandler: makeTrustedOriginGuard(enforceLoopbackHost) },
+    async () => ({
+      token,
+      available: ptyManager.isAvailable(),
+      reason: ptyManager.unavailableReason() ?? undefined,
+    }),
+  );
 }
 
 /** Must be async: Fastify only treats a 2-arg hook as promise-style when it
  *  returns a thenable. A sync hook that returns undefined without calling the
  *  third `next` argument hangs the request forever. Mirrors bearerAuth. */
-async function sameOriginOnly(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!isSameOrigin(request.headers.origin, request.headers.host)) {
-    await reply.code(403).send('forbidden');
-  }
+function makeTrustedOriginGuard(enforceLoopbackHost: boolean) {
+  return async function trustedOriginOnly(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> {
+    if (
+      !isTrustedTerminalRequest(request.headers.origin, request.headers.host, enforceLoopbackHost)
+    ) {
+      await reply.code(403).send('forbidden');
+    }
+  };
 }
 
 function registerTerminalSocketRoute(
   app: FastifyInstance,
   token: string,
   ptyManager: PtySessionManager,
+  enforceLoopbackHost: boolean,
 ): void {
   app.get<{ Params: { agentId: string } }>(
     `${TERMINAL_WS_PREFIX}/:agentId`,
@@ -118,7 +141,9 @@ function registerTerminalSocketRoute(
         socket.close(TERMINAL_CLOSE_UNAUTHORIZED, 'unauthorized');
         return;
       }
-      if (!isSameOrigin(request.headers.origin, request.headers.host)) {
+      if (
+        !isTrustedTerminalRequest(request.headers.origin, request.headers.host, enforceLoopbackHost)
+      ) {
         socket.close(TERMINAL_CLOSE_UNAUTHORIZED, 'forbidden origin');
         return;
       }

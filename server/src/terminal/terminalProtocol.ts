@@ -11,7 +11,7 @@
 
 import * as crypto from 'crypto';
 
-import { TERMINAL_WS_PROTOCOL } from '../../../core/src/constants.js';
+import { LOOPBACK_HOSTNAMES, TERMINAL_WS_PROTOCOL } from '../../../core/src/constants.js';
 
 // ── Frames ──────────────────────────────────────────────────────
 
@@ -107,8 +107,11 @@ export function isValidToken(provided: string | null, expected: string): boolean
  * script) -- which can already read ~/.pixel-agents/server.json off disk, so
  * rejecting it would protect nothing while breaking legitimate local tooling.
  *
- * A DNS-rebound page still carries its real Origin (http://evil.com) and is
- * rejected here.
+ * NOTE: this alone does NOT stop DNS rebinding. A rebound page sends BOTH
+ * Origin: http://evil.com AND Host: evil.com (the Host header is the URL's
+ * hostname, which the browser controls), so origin.host === host holds and this
+ * returns true. The Host-header allowlist in isTrustedTerminalRequest() is what
+ * actually blunts rebinding -- see there.
  */
 export function isSameOrigin(origin: string | undefined, host: string | undefined): boolean {
   if (origin === undefined || origin === '') return true;
@@ -119,4 +122,55 @@ export function isSameOrigin(origin: string | undefined, host: string | undefine
     // Unparseable Origin -- not something a real browser sends. Refuse.
     return false;
   }
+}
+
+const LOOPBACK_HOSTNAME_SET = new Set<string>(LOOPBACK_HOSTNAMES);
+
+/** Strip the brackets URL parsing leaves on an IPv6 hostname (`[::1]` -> `::1`). */
+function unbracket(hostname: string): string {
+  return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+}
+
+/** True when a raw host string (a bind arg, or an already-extracted hostname) is
+ *  loopback. Used both to decide whether to enforce the rebinding guard and by
+ *  the CLI's off-loopback warning. */
+export function isLoopbackHost(host: string | undefined): boolean {
+  if (!host) return false;
+  return LOOPBACK_HOSTNAME_SET.has(unbracket(host).toLowerCase());
+}
+
+/** True when a Host *header* (which carries an optional port, e.g.
+ *  `127.0.0.1:3100` or `[::1]:3100`) names a loopback host. */
+export function isLoopbackHostHeader(host: string | undefined): boolean {
+  if (host === undefined || host === '') return false;
+  let hostname: string;
+  try {
+    hostname = new URL(`http://${host}`).hostname;
+  } catch {
+    return false;
+  }
+  return isLoopbackHost(hostname);
+}
+
+/**
+ * The full terminal request guard: same-origin AND (when the server is bound to
+ * loopback) a loopback Host header.
+ *
+ * The second clause is the DNS-rebinding defence. Rebinding only targets
+ * loopback-bound services (the attacker rebinds their domain to 127.0.0.1 to
+ * escape the same-origin policy), and a rebound request always carries the
+ * attacker's domain as its Host header -- never a loopback literal, which the
+ * browser derives from the URL. So a loopback-bound server can refuse any Host
+ * it doesn't recognise. When the operator has deliberately bound off-loopback
+ * (an opt-in, warned exposure), the Host is some legitimate LAN name we can't
+ * enumerate, so this clause is skipped and the auth token is the guard.
+ */
+export function isTrustedTerminalRequest(
+  origin: string | undefined,
+  host: string | undefined,
+  enforceLoopbackHost: boolean,
+): boolean {
+  if (!isSameOrigin(origin, host)) return false;
+  if (enforceLoopbackHost && !isLoopbackHostHeader(host)) return false;
+  return true;
 }

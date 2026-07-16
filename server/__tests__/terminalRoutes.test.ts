@@ -7,6 +7,7 @@
  */
 
 import * as fs from 'fs';
+import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -80,18 +81,45 @@ interface Attempt {
   opened: boolean;
 }
 
+/** GET over raw http so arbitrary headers (notably Host, which fetch forbids)
+ *  can be set -- required to reproduce a DNS-rebound request. */
+function rawGet(
+  port: number,
+  reqPath: string,
+  headers: Record<string, string>,
+): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: '127.0.0.1', port, path: reqPath, method: 'GET', headers },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => (body += String(chunk)));
+        res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body }));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 /** Connect and resolve how the server responded (opened, or closed with a code). */
 function attach(
   port: number,
   agentId: number,
   protocols?: string[],
   origin?: string,
+  host?: string,
 ): Promise<Attempt> {
+  const headers: Record<string, string> = {};
+  if (origin) headers.origin = origin;
+  // `ws` derives Host from the URL; an explicit header overrides it, which is
+  // exactly what a DNS-rebound browser does (Host = the attacker's domain).
+  if (host) headers.host = host;
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(
       `ws://127.0.0.1:${String(port)}/terminal/${String(agentId)}`,
       protocols,
-      origin ? { headers: { origin } } : undefined,
+      Object.keys(headers).length > 0 ? { headers } : undefined,
     );
     let opened = false;
     ws.on('open', () => {
@@ -173,6 +201,25 @@ describe('terminal WebSocket auth', () => {
     expect(result.code).toBe(TERMINAL_CLOSE_UNAUTHORIZED);
   });
 
+  it('rejects a DNS-rebound attach (valid token, attacker Host + Origin)', async () => {
+    // The real rebinding shape: the victim's browser reaches 127.0.0.1 but sends
+    // BOTH Host: evil.com and Origin: http://evil.com (both derived from the
+    // rebound URL). origin === host, so the same-origin check alone would pass;
+    // the loopback-Host allowlist is what rejects it. Guards the token leak fixed
+    // in fix(terminal): reject non-loopback Host on a loopback-bound server.
+    const result = await attach(
+      port,
+      1,
+      [TERMINAL_WS_PROTOCOL, token],
+      'http://evil.com',
+      'evil.com',
+    );
+    // As with the other rejections, the WS upgrade completes and the handler
+    // then closes with the app code -- the close code is the signal, and no
+    // scrollback/live output is ever sent before it (verified end-to-end).
+    expect(result.code).toBe(TERMINAL_CLOSE_UNAUTHORIZED);
+  });
+
   it('rejects attaching to an agent with no terminal, even with a valid token', async () => {
     // The route can only attach to PTYs this server spawned; it can never start one.
     const result = await attach(port, 999, [TERMINAL_WS_PROTOCOL, token]);
@@ -226,6 +273,20 @@ describe('terminal session token endpoint', () => {
     });
     expect(res.status).toBe(403);
     expect(await res.text()).not.toContain(token);
+  });
+
+  it('refuses a DNS-rebound request (attacker Host + Origin)', async () => {
+    // fetch() forbids overriding Host, so use raw http to reproduce a rebound
+    // browser: Host + Origin both evil.com, connection actually to 127.0.0.1.
+    // Regression for the token leak: origin === host passed the same-origin
+    // check, so the endpoint returned the token. The loopback-Host allowlist now
+    // rejects it. Guards fix(terminal): reject non-loopback Host.
+    const { statusCode, body } = await rawGet(port, '/api/terminal/session', {
+      Host: 'evil.com',
+      Origin: 'http://evil.com',
+    });
+    expect(statusCode).toBe(403);
+    expect(body).not.toContain(token);
   });
 
   it('reports unavailability with a reason instead of a token-bearing success', async () => {

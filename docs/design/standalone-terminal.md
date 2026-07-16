@@ -205,12 +205,14 @@ The browser can't read `~/.pixel-agents/server.json`, and the `WebSocket` constr
 an `Authorization` header. So:
 
 1. **`GET /api/terminal/session`** returns `{ token, available, reason? }`, guarded by
-   `sameOriginOnly`: if an `Origin` header is present and its host doesn't match the request's
-   `Host`, respond `403`. Browsers omit `Origin` on same-origin `GET`, and _always_ send it
-   cross-origin — so our own SPA passes and `evil.com` is rejected. This guard is required
+   `isTrustedTerminalRequest`: (a) if an `Origin` header is present and its host doesn't match the
+   request's `Host`, respond `403`; and (b) when the server is bound to loopback, the `Host` header
+   must itself name a loopback host, else `403`. Browsers omit `Origin` on same-origin `GET`, and
+   _always_ send it cross-origin — so our own SPA passes and a plain cross-origin `evil.com` fetch
+   is rejected by (a). Clause (b) is the DNS-rebinding defence (see below). This guard is required
    precisely because `cors({origin:true})` would otherwise hand the token to any site.
-   Non-browser callers (curl, a local script) have no `Origin` and are allowed — they can read
-   `server.json` off disk anyway, so this grants nothing new.
+   Non-browser callers (curl, a local script) that present a loopback `Host` are allowed — they can
+   read `server.json` off disk anyway, so this grants nothing new.
 2. **`GET /terminal/:agentId`** authenticates the token via the
    **`Sec-WebSocket-Protocol` header**: the client connects with
    `new WebSocket(url, ['pixel-agents.terminal.v1', <token>])`, and the server compares the
@@ -221,8 +223,14 @@ an `Authorization` header. So:
    would be written to stdout/log files on every terminal connection. The subprotocol header is
    not logged, and it's the standard way to authenticate a browser WebSocket.
 
-The terminal WS _also_ applies the same-origin check as defense-in-depth, which blunts DNS
-rebinding (a rebound page's `Origin` is still `http://evil.com`).
+The terminal WS applies the same `isTrustedTerminalRequest` guard **before** it attaches to any
+PTY or replays scrollback. The DNS-rebinding defence is the loopback-`Host` clause, **not** the
+`Origin`-vs-`Host` comparison: a rebound page sends `Host: evil.com` _and_ `Origin: http://evil.com`
+(the `Host` header is the URL's hostname, which the browser derives from the rebound domain), so the
+two match and an `Origin`-vs-`Host` check alone would pass. What actually stops it is that a
+loopback-bound server refuses any non-loopback `Host` — a rebound request's `Host` is always the
+attacker's domain, never a loopback literal. When the operator has deliberately bound off-loopback
+(a warned, opt-in exposure), the loopback-`Host` clause is skipped and the auth token is the guard.
 
 ### Other properties
 

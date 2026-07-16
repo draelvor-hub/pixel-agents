@@ -25,6 +25,7 @@ import { FileStateAdapter } from './fileStateAdapter.js';
 import { claudeProvider, copyHookScript } from './providers/index.js';
 import { PixelAgentsServer } from './server.js';
 import { PtySessionManager } from './terminal/ptySessionManager.js';
+import { isLoopbackHost } from './terminal/terminalProtocol.js';
 
 // ── Argument parsing ──────────────────────────────────────────
 
@@ -75,14 +76,6 @@ Options:
 }
 
 // ── Terminal status reporting ─────────────────────────────────
-
-/** Loopback addresses. Binding anywhere else exposes the terminal beyond this
- *  machine, which is worth an explicit warning since the terminal is a shell. */
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
-
-export function isLoopbackHost(host: string): boolean {
-  return LOOPBACK_HOSTS.has(host);
-}
 
 /**
  * Log one clear line about terminal availability, plus a security warning when

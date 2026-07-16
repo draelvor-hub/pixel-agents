@@ -40,6 +40,12 @@ export const TERMINAL_WS_PROTOCOL = 'pixel-agents.terminal.v1';
 export const TERMINAL_CLOSE_UNAUTHORIZED = 4401;
 export const TERMINAL_CLOSE_NO_SESSION = 4404;
 
+/** Loopback hostnames. Used both to warn when the server binds off-loopback and
+ *  as the anti-DNS-rebinding allowlist for the terminal's Host header: a rebound
+ *  page reaches 127.0.0.1 but its Host header is still the attacker's domain, so
+ *  a loopback-bound server can safely refuse any non-loopback Host. */
+export const LOOPBACK_HOSTNAMES = ['127.0.0.1', 'localhost', '::1'] as const;
+
 // ── Transport ────────────────────────────────────────────────
 // Connection-state names for the MessageTransport state machine.
 
