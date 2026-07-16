@@ -58,6 +58,10 @@ interface ExtensionMessageState {
   selectedAgent: number | null;
   agentTools: Record<number, ToolActivity[]>;
   agentStatuses: Record<number, string>;
+  /** Agents whose last turn ended awaiting user input (vs a plain done). */
+  agentAwaitingInput: Record<number, boolean>;
+  /** Latch: true once an agent has had any activity (first tool or status). */
+  agentSeenActivity: Record<number, boolean>;
   subagentTools: Record<number, Record<string, ToolActivity[]>>;
   subagentCharacters: SubagentCharacter[];
   layoutReady: boolean;
@@ -106,6 +110,10 @@ export function useExtensionMessages(
   const [selectedAgent, setSelectedAgent] = useState<number | null>(null);
   const [agentTools, setAgentTools] = useState<Record<number, ToolActivity[]>>({});
   const [agentStatuses, setAgentStatuses] = useState<Record<number, string>>({});
+  const [agentAwaitingInput, setAgentAwaitingInput] = useState<Record<number, boolean>>({});
+  const [agentSeenActivity, setAgentSeenActivity] = useState<Record<number, boolean>>({});
+  const markSeenActivity = (id: number) =>
+    setAgentSeenActivity((prev) => (prev[id] ? prev : { ...prev, [id]: true }));
   const [subagentTools, setSubagentTools] = useState<
     Record<number, Record<string, ToolActivity[]>>
   >({});
@@ -286,6 +294,18 @@ export function useExtensionMessages(
           delete next[id];
           return next;
         });
+        setAgentAwaitingInput((prev) => {
+          if (!(id in prev)) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setAgentSeenActivity((prev) => {
+          if (!(id in prev)) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         setSubagentTools((prev) => {
           if (!(id in prev)) return prev;
           const next = { ...prev };
@@ -303,17 +323,38 @@ export function useExtensionMessages(
           { palette?: number; hueShift?: number; seatId?: string }
         >;
         const folderNames = (msg.folderNames || {}) as Record<number, string>;
-        // Buffer agents — they'll be added in layoutLoaded after seats are built
+        // Characters need the layout's seats to exist. VS Code announces
+        // existing agents before layoutLoaded, so buffer and let layoutLoaded
+        // flush; the standalone server sends layoutLoaded first (a reloaded
+        // browser gets both in one webviewReady burst), so add immediately —
+        // buffering would wait forever for a layoutLoaded that already passed.
         for (const id of incoming) {
           const m = meta[id];
-          pendingAgents.push({
+          const entry = {
             id,
             palette: m?.palette,
             hueShift: m?.hueShift,
             seatId: m?.seatId,
             folderName: folderNames[id],
-          });
+          };
+          if (layoutReadyRef.current) {
+            os.addAgent(
+              entry.id,
+              entry.palette,
+              entry.hueShift,
+              entry.seatId,
+              true,
+              entry.folderName,
+            );
+          } else {
+            pendingAgents.push(entry);
+          }
           noteFolderName(folderNames[id]);
+        }
+        // Persist palettes/seats picked just now for agents that had none, so
+        // the next reload restores the same look (mirrors the layoutLoaded flush).
+        if (layoutReadyRef.current && os.characters.size > 0) {
+          saveAgentSeats(os);
         }
         setAgents((prev) => {
           const ids = new Set(prev);
@@ -330,6 +371,7 @@ export function useExtensionMessages(
         const toolId = msg.toolId as string;
         const status = msg.status as string;
         const permissionActive = msg.permissionActive as boolean | undefined;
+        markSeenActivity(id);
         setAgentTools((prev) => {
           const list = prev[id] || [];
           if (list.some((t) => t.toolId === toolId)) return prev;
@@ -410,6 +452,7 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentStatus') {
         const id = msg.id as number;
         const status = msg.status as string;
+        markSeenActivity(id);
         setAgentStatuses((prev) => {
           if (status === 'active') {
             if (!(id in prev)) return prev;
@@ -418,6 +461,11 @@ export function useExtensionMessages(
             return next;
           }
           return { ...prev, [id]: status };
+        });
+        setAgentAwaitingInput((prev) => {
+          const awaiting = status === 'waiting' && msg.awaitingInput === true;
+          if ((prev[id] ?? false) === awaiting) return prev;
+          return { ...prev, [id]: awaiting };
         });
         os.setAgentActive(id, status === 'active');
         if (status === 'waiting') {
@@ -635,6 +683,8 @@ export function useExtensionMessages(
     selectedAgent,
     agentTools,
     agentStatuses,
+    agentAwaitingInput,
+    agentSeenActivity,
     subagentTools,
     subagentCharacters,
     layoutReady,

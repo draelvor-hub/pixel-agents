@@ -95,14 +95,9 @@ export function BottomToolbar({
   const showUnavailable = isBrowserRuntime && !terminalAvailable;
 
   return (
-    // Lifted above the terminal drawer, which is full-width along the bottom and
-    // would otherwise bury these buttons the moment an agent launches. App sets
-    // --terminal-drawer-h; it defaults to 0px, so with no drawer (VS Code, or
-    // standalone with no terminals) this is exactly the original bottom-10.
-    <div
-      className="absolute left-10 z-20 flex items-center gap-4 pixel-panel p-4"
-      style={{ bottom: 'calc(var(--terminal-drawer-h, 0px) + 10px)' }}
-    >
+    // Bottom-left. The terminal panel docks on the right edge, so it never
+    // reaches these buttons and no lift is needed.
+    <div className="absolute left-10 bottom-10 z-20 flex items-center gap-4 pixel-panel p-4">
       {showUnavailable && (
         <Button
           variant="disabled"

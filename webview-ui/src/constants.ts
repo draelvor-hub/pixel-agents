@@ -263,16 +263,36 @@ export const MAX_PET_ID_LENGTH = 128;
 // This file is the one place inline colors are allowed (see eslint.config.js),
 // which is why xterm's theme lives here rather than next to the component.
 
-/** Drawer height as a fraction of the viewport. */
-export const TERMINAL_DRAWER_HEIGHT_RATIO = 0.4;
-export const TERMINAL_DRAWER_MIN_HEIGHT_PX = 160;
-/** Height of the tab strip; also the drawer's total height when collapsed. */
-export const TERMINAL_DRAWER_COLLAPSED_HEIGHT_PX = 50;
-/** Drawer height in each state, as CSS lengths. Single-sourced here because the
- *  BottomToolbar lifts itself by exactly this much (via the --terminal-drawer-h
- *  custom property) to stay reachable above the drawer. */
-export const TERMINAL_DRAWER_OPEN_HEIGHT_CSS = `max(${TERMINAL_DRAWER_MIN_HEIGHT_PX}px, ${TERMINAL_DRAWER_HEIGHT_RATIO * 100}vh)`;
-export const TERMINAL_DRAWER_COLLAPSED_HEIGHT_CSS = `${TERMINAL_DRAWER_COLLAPSED_HEIGHT_PX}px`;
+// The panel docks on the right as a full-height column, in flow beside the
+// office region (which flexes to fill the rest) — not overlaid on top of it.
+/** Open width the panel starts at, in px; the user can drag to resize. */
+export const TERMINAL_DRAWER_DEFAULT_WIDTH_PX = 520;
+/** Clamp for the drag: never narrower than this. */
+export const TERMINAL_DRAWER_MIN_WIDTH_PX = 320;
+/** Clamp for the drag: never wider than this fraction of the window. */
+export const TERMINAL_DRAWER_MAX_WIDTH_RATIO = 0.8;
+/** Width of the always-visible agent-card bar overlaying the office's right
+ *  edge — fits the toggle handle and the stacked agent cards (40px mug shot +
+ *  16px close/status column + card chrome ≈ 63px, plus a little air each
+ *  side). */
+export const TERMINAL_SIDEBAR_WIDTH_PX = 72;
+/** Grab width of the drag handle on the panel's left edge. */
+export const TERMINAL_DRAWER_RESIZE_HANDLE_PX = 6;
+
+// Mug shot: a square crop of the agent's front-facing sprite, focused on the
+// face, shown in each terminal tab in place of an "Agent N" label. Sprites are
+// 16 wide × 32 tall; the head runs to about row 18 (eyes ~row 14). The square is
+// wider than the 16px sprite, so the head sits centred with a little air.
+// Tweak these three to reframe: SIDE = zoom out/in, TOP = raise/lower the crop,
+// LEFT = shift left/right (negative centres a square wider than the sprite).
+export const MUGSHOT_CROP_TOP_ROW = 0;
+export const MUGSHOT_CROP_LEFT_COL = -1;
+export const MUGSHOT_CROP_SIDE_PX = 20;
+/** Integer sprite-pixel zoom. 2 = each sprite pixel is 2 px. */
+export const MUGSHOT_RENDER_ZOOM = 2;
+/** On-screen size in CSS px. Equal to the backing canvas (crop × zoom) so there
+ *  is no fractional scaling — the mug shot stays pixel-perfect. */
+export const MUGSHOT_DISPLAY_PX = MUGSHOT_CROP_SIDE_PX * MUGSHOT_RENDER_ZOOM;
 /** Terminal CONTENT is monospace on purpose: FS Pixel Sans is not a mono font,
  *  and a TUI mis-renders in a proportional face. The drawer chrome around it
  *  still uses the pixel font. */
