@@ -78,9 +78,10 @@ export const MAX_HOOK_BODY_SIZE = 65_536; // 64KB
  *  means anyone who prefers the Microsoft package can just install it.
  *  See docs/design/standalone-terminal.md. */
 export const PTY_MODULE_CANDIDATES = ['@lydell/node-pty', 'node-pty'] as const;
-/** Per-session scrollback ring size. Replayed to a browser that connects late
- *  or reconnects, so a reload never shows a blank terminal. */
-export const TERMINAL_SCROLLBACK_MAX_BYTES = 262_144; // 256KB
+/** Scrollback lines the per-session headless-xterm mirror retains. Matches the
+ *  browser's TERMINAL_SCROLLBACK_LINES so a reattach replays the same depth the
+ *  client would have kept. Bounds the serialized replay snapshot. */
+export const TERMINAL_MIRROR_SCROLLBACK_LINES = 5_000;
 /** Terminal size used until the browser reports its real geometry. */
 export const TERMINAL_DEFAULT_COLS = 80;
 export const TERMINAL_DEFAULT_ROWS = 24;

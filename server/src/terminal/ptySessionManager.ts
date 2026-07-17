@@ -6,15 +6,19 @@
  * is deferred, see docs/design/standalone-terminal.md).
  *
  * Detaching a browser does NOT kill the PTY: sockets come and go (reload, network
- * blip), the process outlives them, and the scrollback ring replays what was
- * missed. Only an explicit dispose() or the process exiting ends a session.
+ * blip), the process outlives them, and a serialized snapshot of the mirrored
+ * screen restores what was missed. Only an explicit dispose() or the process
+ * exiting ends a session.
  */
+
+import { SerializeAddon } from '@xterm/addon-serialize';
+import { Terminal as HeadlessTerminal } from '@xterm/headless';
 
 import {
   TERMINAL_DEFAULT_COLS,
   TERMINAL_DEFAULT_ROWS,
   TERMINAL_KILL_GRACE_MS,
-  TERMINAL_SCROLLBACK_MAX_BYTES,
+  TERMINAL_MIRROR_SCROLLBACK_LINES,
   TERMINAL_TERM_NAME,
 } from '../constants.js';
 import type { IPty, PtyModule } from './ptyModule.js';
@@ -43,10 +47,14 @@ type ExitListener = (exit: PtyExit) => void;
 export class PtySession {
   readonly agentId: number;
   private readonly pty: IPty;
-  /** Bounded scrollback ring, kept as chunks with a running byte total so
-   *  trimming is O(dropped chunks) instead of re-measuring the whole buffer. */
-  private readonly chunks: string[] = [];
-  private scrollbackBytes = 0;
+  /** Headless xterm mirroring the PTY's screen state. A raw byte ring can't be
+   *  replayed to a fresh client — it starts mid-stream and a full-screen TUI's
+   *  cursor movements assume screen state the client doesn't have (the garbled
+   *  overlapping-fragments glitch on reload). The mirror parses every byte as a
+   *  real terminal would, so serializing it reproduces the CURRENT screen
+   *  (scrollback, colors, cursor) faithfully at any attach point. */
+  private readonly mirror: HeadlessTerminal;
+  private readonly serializeAddon: SerializeAddon;
   private readonly dataListeners = new Set<DataListener>();
   private readonly exitListeners = new Set<ExitListener>();
   private killTimer: ReturnType<typeof setTimeout> | null = null;
@@ -60,9 +68,21 @@ export class PtySession {
     this.pty = pty;
     this.cols = cols;
     this.rows = rows;
+    this.mirror = new HeadlessTerminal({
+      cols,
+      rows,
+      scrollback: TERMINAL_MIRROR_SCROLLBACK_LINES,
+      allowProposedApi: true,
+    });
+    this.serializeAddon = new SerializeAddon();
+    // The addon is typed against @xterm/xterm's Terminal, but it only touches
+    // the buffer API surface @xterm/headless shares (same version family).
+    this.mirror.loadAddon(
+      this.serializeAddon as unknown as Parameters<HeadlessTerminal['loadAddon']>[0],
+    );
 
     this.pty.onData((chunk) => {
-      this.appendScrollback(chunk);
+      this.mirror.write(chunk);
       for (const listener of this.dataListeners) listener(chunk);
     });
 
@@ -91,22 +111,20 @@ export class PtySession {
     return this.exit !== null;
   }
 
-  /** Buffered output for replay to a late-joining or reconnecting client. */
-  scrollback(): string {
-    return this.chunks.join('');
-  }
-
-  private appendScrollback(chunk: string): void {
-    this.chunks.push(chunk);
-    this.scrollbackBytes += chunk.length;
-    // Drop whole chunks from the front until back under the cap. Trimming at a
-    // chunk boundary can slice an ANSI escape sequence in half, so the very
-    // first replayed bytes may be garbage on an overflowing buffer -- xterm
-    // resynchronises on the next sequence, and this beats unbounded growth.
-    while (this.scrollbackBytes > TERMINAL_SCROLLBACK_MAX_BYTES && this.chunks.length > 1) {
-      const dropped = this.chunks.shift();
-      this.scrollbackBytes -= dropped?.length ?? 0;
-    }
+  /**
+   * Serialized screen state (scrollback + screen + cursor + attributes) for
+   * replay to a late-joining or reconnecting client, valid on a FRESH terminal
+   * of the same geometry. Async because the mirror parses writes on its own
+   * queue: the empty flush write's callback fires only after every chunk
+   * received before this call has been parsed, so none are missing from the
+   * snapshot (and any chunk arriving after it is exactly the live stream).
+   */
+  snapshot(): Promise<string> {
+    return new Promise((resolve) => {
+      this.mirror.write('', () => {
+        resolve(this.serializeAddon.serialize());
+      });
+    });
   }
 
   onData(listener: DataListener): () => void {
@@ -138,6 +156,8 @@ export class PtySession {
     if (!isValidDimension(cols) || !isValidDimension(rows)) return;
     this.cols = cols;
     this.rows = rows;
+    // Keep the mirror at PTY geometry, or the snapshot would lay out wrong.
+    this.mirror.resize(cols, rows);
     try {
       this.pty.resize(cols, rows);
     } catch (err) {

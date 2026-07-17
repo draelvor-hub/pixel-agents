@@ -53,12 +53,23 @@ export function TerminalPane({ agentId, isActive, onStatusChange }: TerminalPane
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(host);
     termRef.current = term;
     fitRef.current = fit;
 
     const connection = new TerminalConnection(agentId, {
       onOutput: (data) => term.write(data),
+      onReplay: (data, cols, rows) => {
+        // Reproduce the server's screen exactly: size the terminal to the
+        // geometry the snapshot was serialized at, then write it after an
+        // in-band full reset (RIS). RIS rather than term.reset() so the clear
+        // is ordered within xterm's async write queue and works before open();
+        // resize-first so the snapshot lays out at its own geometry. The fit
+        // then reconciles with the actual container — if that's a real change,
+        // the PTY gets a SIGWINCH and the TUI repaints itself.
+        term.resize(cols, rows);
+        term.write(`\x1bc${data}`);
+        scheduleFit();
+      },
       onExit: (exitCode) => {
         term.write(`\r\n\x1b[90m[process exited with code ${String(exitCode)}]\x1b[0m\r\n`);
       },
@@ -71,16 +82,43 @@ export function TerminalPane({ agentId, isActive, onStatusChange }: TerminalPane
     // Debounced: ResizeObserver fires per frame during a drag, and every resize
     // is a syscall on the PTY plus a full TUI repaint.
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    let verifyFrame: number | null = null;
     const applyFit = () => {
       // A hidden pane has zero dimensions; fit() would compute a nonsense size
       // and resize the PTY to it.
       if (host.clientWidth === 0 || host.clientHeight === 0) return;
+      // Deferred open: xterm measures its cell grid the moment open() runs,
+      // and this pane mounts inside a display:none panel (App only flips the
+      // drawer open in an effect that runs after ours). Measuring while
+      // hidden records garbage cell metrics that poison the first visible
+      // fit() — the terminal squeezed into a ~10-column strip until the user
+      // jiggles the container. Opening on the first fit that sees real
+      // dimensions measures against real layout instead. Output that arrived
+      // before open (the scrollback replay) is buffered by xterm and flushed
+      // here.
+      if (!term.element) {
+        term.open(host);
+        term.focus();
+      }
       try {
         fit.fit();
         connection.resize(term.cols, term.rows);
       } catch {
         // fit() throws if the element is mid-teardown; the next tick recovers.
       }
+      // Self-heal: one frame later, if the grid no longer matches what the
+      // host's dimensions call for (metrics re-measured, layout shifted under
+      // us), fit again rather than waiting for a user resize. Converges: fit()
+      // applies exactly the proposal, so a stable layout passes this check on
+      // the next pass and stops rescheduling.
+      if (verifyFrame !== null) cancelAnimationFrame(verifyFrame);
+      verifyFrame = requestAnimationFrame(() => {
+        verifyFrame = null;
+        const proposed = fit.proposeDimensions();
+        if (proposed && (proposed.cols !== term.cols || proposed.rows !== term.rows)) {
+          applyFit();
+        }
+      });
     };
     const scheduleFit = () => {
       if (resizeTimer) clearTimeout(resizeTimer);
@@ -93,6 +131,7 @@ export function TerminalPane({ agentId, isActive, onStatusChange }: TerminalPane
 
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (verifyFrame !== null) cancelAnimationFrame(verifyFrame);
       observer.disconnect();
       connection.dispose();
       term.dispose();
@@ -111,7 +150,9 @@ export function TerminalPane({ agentId, isActive, onStatusChange }: TerminalPane
       } catch {
         // Not laid out yet; the ResizeObserver will catch up.
       }
-      termRef.current?.focus();
+      // The terminal opens lazily on its first visible fit (see the mount
+      // effect), so it may not be attached yet — that first fit also focuses.
+      if (termRef.current?.element) termRef.current.focus();
     });
     return () => cancelAnimationFrame(id);
   }, [isActive]);

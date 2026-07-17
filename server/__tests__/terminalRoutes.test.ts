@@ -225,6 +225,36 @@ describe('terminal WebSocket auth', () => {
     const result = await attach(port, 999, [TERMINAL_WS_PROTOCOL, token]);
     expect(result.code).toBe(TERMINAL_CLOSE_NO_SESSION);
   });
+
+  it('sends a serialized replay snapshot first, then the live stream', async () => {
+    // Pre-attach output must arrive as screen state inside the replay frame
+    // (not as raw output — a byte ring garbles a reattaching TUI), and only
+    // post-attach output may flow as live output frames.
+    lastPty.emit('before-attach\r\n');
+
+    const ws = new WebSocket(`ws://127.0.0.1:${String(port)}/terminal/1`, [
+      TERMINAL_WS_PROTOCOL,
+      token,
+    ]);
+    const frames: Array<Record<string, unknown>> = [];
+    const secondFrame = new Promise<void>((resolve, reject) => {
+      ws.on('message', (raw: Buffer | string) => {
+        frames.push(JSON.parse(raw.toString()) as Record<string, unknown>);
+        if (frames.length === 1) lastPty.emit('after-attach');
+        if (frames.length === 2) resolve();
+      });
+      ws.on('error', reject);
+      setTimeout(() => reject(new Error('timed out waiting for terminal frames')), 5_000);
+    });
+    await secondFrame;
+    ws.close();
+
+    expect(frames[0].type).toBe('replay');
+    expect(String(frames[0].data)).toContain('before-attach');
+    expect(frames[0].cols).toBeTypeOf('number');
+    expect(frames[0].rows).toBeTypeOf('number');
+    expect(frames[1]).toEqual({ type: 'output', data: 'after-attach' });
+  });
 });
 
 describe('terminal session token endpoint', () => {

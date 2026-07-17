@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { TERMINAL_SCROLLBACK_MAX_BYTES } from '../src/constants.js';
+import { TERMINAL_MIRROR_SCROLLBACK_LINES } from '../src/constants.js';
 import type { IPty, PtyModule, PtyModuleResolution } from '../src/terminal/ptyModule.js';
 import { PtySessionManager } from '../src/terminal/ptySessionManager.js';
 
@@ -292,38 +292,50 @@ describe('PtySession streaming', () => {
   });
 });
 
-describe('PtySession scrollback', () => {
-  it('buffers output for replay to a late-joining client', () => {
+/** Drop ANSI escape sequences so assertions read the visible text only. */
+function stripAnsi(data: string): string {
+   
+  return data.replace(/\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-Z0-9]|\x1b[a-zA-Z=><]/g, '');
+}
+
+describe('PtySession snapshot', () => {
+  it('captures emitted output for a late-joining client', async () => {
     const { manager, spawned } = harness();
     const session = create(manager, 1);
     spawned[0].emit('hello ');
     spawned[0].emit('world');
-    expect(session.scrollback()).toBe('hello world');
+    expect(stripAnsi(await session.snapshot())).toContain('hello world');
   });
 
-  it('is empty before any output', () => {
+  it('is empty before any output', async () => {
     const { manager } = harness();
-    expect(create(manager, 1).scrollback()).toBe('');
+    expect(stripAnsi(await create(manager, 1).snapshot())).toBe('');
   });
 
-  it('bounds the buffer, keeping the most recent output', () => {
+  it('reflects the current screen, not the raw byte history', async () => {
+    // The reason the mirror exists: a raw ring would replay SECRET and the
+    // clear-screen bytes verbatim into a fresh client whose screen state no
+    // longer matches, garbling the result. The snapshot is the screen as it IS.
     const { manager, spawned } = harness();
     const session = create(manager, 1);
-    const chunk = 'x'.repeat(10_000);
-    // Overshoot the cap by a wide margin.
-    for (let i = 0; i < 40; i++) spawned[0].emit(chunk);
-    spawned[0].emit('THE-TAIL');
+    spawned[0].emit('SECRET\r\n');
+    spawned[0].emit('\x1b[2J\x1b[3J\x1b[H'); // clear screen + scrollback, home
+    spawned[0].emit('AFTER');
 
-    const buffer = session.scrollback();
-    expect(buffer.length).toBeLessThanOrEqual(TERMINAL_SCROLLBACK_MAX_BYTES);
-    expect(buffer.endsWith('THE-TAIL')).toBe(true);
+    const snapshot = stripAnsi(await session.snapshot());
+    expect(snapshot).toContain('AFTER');
+    expect(snapshot).not.toContain('SECRET');
   });
 
-  it('never drops the only chunk, even one larger than the cap', () => {
-    // Trimming to nothing would leave a reconnecting client with a blank screen.
+  it('bounds retained scrollback, keeping the most recent lines', async () => {
     const { manager, spawned } = harness();
     const session = create(manager, 1);
-    spawned[0].emit('y'.repeat(TERMINAL_SCROLLBACK_MAX_BYTES * 2));
-    expect(session.scrollback().length).toBe(TERMINAL_SCROLLBACK_MAX_BYTES * 2);
+    const total = TERMINAL_MIRROR_SCROLLBACK_LINES + 1_000;
+    const lines = Array.from({ length: total }, (_, i) => `L${String(i).padStart(6, '0')}`);
+    spawned[0].emit(lines.join('\r\n'));
+
+    const snapshot = stripAnsi(await session.snapshot());
+    expect(snapshot).toContain(`L${String(total - 1).padStart(6, '0')}`);
+    expect(snapshot).not.toContain('L000000');
   });
 });

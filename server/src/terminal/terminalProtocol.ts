@@ -17,6 +17,10 @@ import { LOOPBACK_HOSTNAMES, TERMINAL_WS_PROTOCOL } from '../../../core/src/cons
 
 /** server → client */
 export type TerminalServerFrame =
+  /** First frame on every attach: a serialized snapshot of the mirrored screen,
+   *  plus the PTY geometry it was laid out at. The client resets, resizes to
+   *  cols×rows, and writes `data` to reproduce the screen exactly. */
+  | { type: 'replay'; data: string; cols: number; rows: number }
   | { type: 'output'; data: string }
   | { type: 'exit'; exitCode: number; signal?: number };
 

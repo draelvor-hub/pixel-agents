@@ -48,6 +48,9 @@ export function fetchTerminalSession(): Promise<TerminalSessionInfo> {
 
 export interface TerminalConnectionHandlers {
   onOutput(data: string): void;
+  /** First frame of every (re)attach: a serialized snapshot of the server-side
+   *  screen, laid out at cols×rows. Replace the terminal's content with it. */
+  onReplay(data: string, cols: number, rows: number): void;
   onExit(exitCode: number): void;
   onStatusChange(status: TerminalConnectionStatus): void;
 }
@@ -115,6 +118,8 @@ export class TerminalConnection {
       if (!frame) return;
       if (frame.type === 'output') {
         this.handlers.onOutput(frame.data);
+      } else if (frame.type === 'replay') {
+        this.handlers.onReplay(frame.data, frame.cols, frame.rows);
       } else {
         this.exited = true;
         this.handlers.onExit(frame.exitCode);
@@ -187,13 +192,24 @@ export class TerminalConnection {
   }
 }
 
-type ServerFrame = { type: 'output'; data: string } | { type: 'exit'; exitCode: number };
+type ServerFrame =
+  | { type: 'replay'; data: string; cols: number; rows: number }
+  | { type: 'output'; data: string }
+  | { type: 'exit'; exitCode: number };
 
 function parseServerFrame(raw: string): ServerFrame | null {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (parsed.type === 'output' && typeof parsed.data === 'string') {
       return { type: 'output', data: parsed.data };
+    }
+    if (
+      parsed.type === 'replay' &&
+      typeof parsed.data === 'string' &&
+      typeof parsed.cols === 'number' &&
+      typeof parsed.rows === 'number'
+    ) {
+      return { type: 'replay', data: parsed.data, cols: parsed.cols, rows: parsed.rows };
     }
     if (parsed.type === 'exit') {
       return { type: 'exit', exitCode: typeof parsed.exitCode === 'number' ? parsed.exitCode : 0 };

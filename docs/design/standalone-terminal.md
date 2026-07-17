@@ -39,7 +39,7 @@ BottomToolbar "+ Agent"
                                              └─ terminalSessionOpened broadcast
 TerminalDrawer (xterm.js)
    └─ WS /terminal/:agentId  ────────▶ terminal WS route
-        ◀── scrollback replay ────────── PtySession.scrollback()
+        ◀── {type:"replay"} ──────────── PtySession.snapshot() (serialized mirror)
         ◀── {type:"output"} ──────────── pty.onData
         ─── {type:"input"} ───────────▶  pty.write
         ─── {type:"resize"} ──────────▶  pty.resize
@@ -294,18 +294,26 @@ loopback socket, which is not a bottleneck. Revisit if it ever is.
 
 ### Scrollback / reconnect
 
-Each `PtySession` keeps a bounded scrollback ring (`TERMINAL_SCROLLBACK_MAX_BYTES`, 256 KB,
-trimmed from the front on overflow). A browser that connects late, reloads, or reconnects after
-the WS drops receives the ring as one replay chunk before the live stream. This makes the drawer
-survive an F5 without a blank terminal.
+Each `PtySession` mirrors its PTY output into a headless xterm (`@xterm/headless`, scrollback
+capped at `TERMINAL_MIRROR_SCROLLBACK_LINES`). A browser that connects late, reloads, or
+reconnects after the WS drops receives a `{type:"replay"}` frame carrying a
+`@xterm/addon-serialize` snapshot of the mirrored screen plus the PTY geometry; the client
+resets, resizes to that geometry, writes the snapshot, and then re-fits to its container. This
+replaces an earlier raw byte ring: a ring starts mid-stream and a full-screen TUI's cursor
+movements assume screen state a fresh client doesn't have, so replaying it produced garbled
+overlapping fragments — and since the PTY size usually hasn't changed across a reload, no
+SIGWINCH ever arrived to trigger a repaint. The snapshot is valid on a fresh terminal at any
+attach point by construction. Output racing the snapshot is queued server-side and flushed after
+the replay frame, so no byte is dropped or doubled across the handoff.
 
 Closing the WS does **not** kill the PTY — only `closeAgent` (or the process exiting) does. So a
 reload reattaches to a still-running Claude session.
 
 ## In scope
 
-- `PtySessionManager`: spawn/write/resize/dispose per agent id, bounded scrollback, exit
-  propagation, availability probe, `disposeAll()` on shutdown.
+- `PtySessionManager`: spawn/write/resize/dispose per agent id, headless-xterm screen mirror
+  with serialized replay snapshots, exit propagation, availability probe, `disposeAll()` on
+  shutdown.
 - `launchStandaloneAgent()`: PTY-backed mirror of the VS Code launch path, reusing
   `buildLaunchCommand`, pre-registering the expected JSONL, polling for it, and wiring the
   existing file-watcher + session-router machinery.

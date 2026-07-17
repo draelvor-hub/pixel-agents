@@ -160,20 +160,33 @@ function registerTerminalSocketRoute(
         if (socket.readyState === WS_OPEN) socket.send(data);
       };
 
-      // Replay buffered output first, so a reload/reconnect never shows a blank
-      // terminal. Sent as one frame: xterm handles a large write fine, and it
-      // keeps replay strictly ordered ahead of the live stream below.
-      const backlog = session.scrollback();
-      if (backlog.length > 0) {
-        send(encodeServerFrame({ type: 'output', data: backlog }));
-      }
+      // Snapshot-then-live handoff. The replay frame carries a serialized
+      // snapshot of the mirrored screen (valid on a fresh terminal, unlike a
+      // raw byte ring), and it must be the FIRST frame: any output or exit
+      // arriving while the snapshot is being taken is queued and flushed right
+      // after it. The snapshot's flush-write semantics (see PtySession) mean a
+      // queued chunk is never also inside the snapshot — no byte is dropped or
+      // doubled across the handoff.
+      let replaySent = false;
+      const preReplay: string[] = [];
+      const forward = (frame: string): void => {
+        if (replaySent) send(frame);
+        else preReplay.push(frame);
+      };
 
       const offData = session.onData((chunk) => {
-        send(encodeServerFrame({ type: 'output', data: chunk }));
+        forward(encodeServerFrame({ type: 'output', data: chunk }));
       });
 
       const offExit = session.onExit((exit) => {
-        send(encodeServerFrame({ type: 'exit', exitCode: exit.exitCode, signal: exit.signal }));
+        forward(encodeServerFrame({ type: 'exit', exitCode: exit.exitCode, signal: exit.signal }));
+      });
+
+      void session.snapshot().then((data) => {
+        send(encodeServerFrame({ type: 'replay', data, cols: session.cols, rows: session.rows }));
+        replaySent = true;
+        for (const frame of preReplay) send(frame);
+        preReplay.length = 0;
       });
 
       socket.on('message', (raw: Buffer | string) => {
