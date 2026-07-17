@@ -15,7 +15,7 @@ interface TerminalDrawerProps {
   onSelectAgent: (agentId: number) => void;
   onCloseAgent: (agentId: number) => void;
   isOpen: boolean;
-  /** Close the panel (the × in its top-right corner). Reopening happens in App:
+  /** Close the panel (the ">" in its top-right corner). Reopening happens in App:
    *  selecting an agent — by card or by character — shows its terminal. */
   onClosePanel: () => void;
   /** Open width in px (user-resizable). Ignored while collapsed. */
@@ -128,7 +128,7 @@ export function TerminalDrawer({
             className="hover:bg-btn-hover"
             title="Close terminal"
           >
-            ×
+            {'>'}
           </Button>
         </div>
 
